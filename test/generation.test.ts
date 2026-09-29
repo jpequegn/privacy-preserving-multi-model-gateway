@@ -37,3 +37,15 @@ test("a zero budget refuses all demo models", async () => {
   const response = await generate({ prompt: "hello", maxCostUsd: 0 });
   assert.equal(response.status, 422);
 });
+
+test("SSE emits chunks followed by a final receipt", async () => {
+  const response = await fetch(`${baseUrl}/api/generate/stream`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "hello world" }),
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
+  const body = await response.text();
+  assert.match(body, /event: chunk/);
+  assert.match(body, /event: done/);
+  assert.match(body, /"outcome":"completed"/);
+});
