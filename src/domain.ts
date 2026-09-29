@@ -30,6 +30,7 @@ export interface AttemptReceipt {
 
 export interface RouteReceipt {
   id: string;
+  comparisonId?: string;
   createdAt: string;
   policy: Policy;
   privacy: Privacy;

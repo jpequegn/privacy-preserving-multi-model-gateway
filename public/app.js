@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 const money = (value) => `$${Number(value ?? 0).toFixed(6)}`;
 const milliseconds = (value) => `${Math.round(Number(value ?? 0))} ms`;
 let currentReceiptId;
+let currentAlternativeId;
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -102,6 +103,8 @@ async function refresh() {
 function renderResult(data) {
   const { receipt } = data;
   currentReceiptId = receipt.outcome === "completed" ? receipt.id : undefined;
+  currentAlternativeId = undefined;
+  $("compare-details").hidden = true;
   $("empty-result").hidden = true;
   $("result").hidden = false;
   $("model-name").textContent = receipt.modelId ?? "Unserved";
@@ -121,13 +124,43 @@ function renderResult(data) {
   }
 }
 
+function renderComparison(data) {
+  renderResult(data.primary);
+  $("compare-details").hidden = false;
+  const alternative = data.alternative;
+  currentAlternativeId =
+    alternative?.receipt.outcome === "completed"
+      ? alternative.receipt.id
+      : undefined;
+  $("alternative-name").textContent = alternative?.receipt.modelId ?? "Not run";
+  $("disagreement").textContent =
+    data.disagreement === "identical"
+      ? "Same wording"
+      : data.disagreement === "different"
+        ? "Different wording"
+        : "Incomplete";
+  $("alternative-answer").textContent =
+    alternative?.answer || data.reason || "No answer returned.";
+  $("alternative-cost").textContent = alternative
+    ? `${money(alternative.receipt.costUsd)} ${alternative.receipt.costKind} cost`
+    : "No cost";
+  $("alternative-latency").textContent = alternative
+    ? milliseconds(alternative.receipt.elapsedMs)
+    : "";
+  $("alternative-feedback-state").textContent = "";
+  $("rate-alt-up").disabled = !currentAlternativeId;
+  $("rate-alt-down").disabled = !currentAlternativeId;
+}
+
 $("prompt-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("send").disabled = true;
   $("request-state").textContent = "Routing...";
   try {
     const budget = $("budget").value;
-    const response = await fetch("/api/generate", {
+    const compare =
+      document.querySelector('input[name="mode"]:checked')?.value === "compare";
+    const response = await fetch(compare ? "/api/compare" : "/api/generate", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -138,9 +171,17 @@ $("prompt-form").addEventListener("submit", async (event) => {
       }),
     });
     const data = await response.json();
-    if (!response.ok && !data.receipt) throw new Error(data.error ?? `HTTP ${response.status}`);
-    renderResult(data);
-    $("request-state").textContent = data.receipt.outcome === "completed" ? "Complete" : "Interrupted";
+    if (!response.ok && !data.receipt)
+      throw new Error(data.error ?? `HTTP ${response.status}`);
+    if (compare) {
+      renderComparison(data);
+      $("request-state").textContent =
+        data.disagreement === "incomplete" ? "Partial comparison" : "Compared";
+    } else {
+      renderResult(data);
+      $("request-state").textContent =
+        data.receipt.outcome === "completed" ? "Complete" : "Interrupted";
+    }
     await refresh();
   } catch (error) {
     $("request-state").textContent = error.message;
@@ -173,10 +214,35 @@ for (const [id, rating] of [
   });
 }
 
+for (const [id, rating] of [
+  ["rate-alt-up", "up"],
+  ["rate-alt-down", "down"],
+]) {
+  $(id).addEventListener("click", async () => {
+    if (!currentAlternativeId) return;
+    try {
+      await api("/api/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requestId: currentAlternativeId,
+          rating,
+          corrected: false,
+        }),
+      });
+      $("alternative-feedback-state").textContent = "Saved";
+      await refresh();
+    } catch (error) {
+      $("alternative-feedback-state").textContent = error.message;
+    }
+  });
+}
+
 $("clear-history").addEventListener("click", async () => {
   if (!window.confirm("Delete all local receipts and feedback?")) return;
   await api("/api/receipts", { method: "DELETE" });
   currentReceiptId = undefined;
+  currentAlternativeId = undefined;
   $("result").hidden = true;
   $("empty-result").hidden = false;
   await refresh();
@@ -186,9 +252,13 @@ api("/api/health")
   .then(async () => {
     $("connection").textContent = "Local gateway online";
     const models = await api("/api/models");
-    $("remote").disabled = !models.models.some((model) => model.locality === "remote");
+    $("remote").disabled = !models.models.some(
+      (model) => model.locality === "remote",
+    );
+    $("compare-mode").disabled = models.models.length < 2;
     if (!models.synthetic)
-      $("data-note").textContent = "Costs use provider token counts when reported, otherwise estimates. User ratings are not verified model quality.";
+      $("data-note").textContent =
+        "Costs use provider token counts when reported, otherwise estimates. User ratings are not verified model quality.";
     return refresh();
   })
   .catch(() => {

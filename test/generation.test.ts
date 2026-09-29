@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import type { AddressInfo } from "node:net";
 import { createGatewayServer } from "../src/http.js";
 import { MemoryLedger } from "../src/ledger.js";
+import { demoCatalog, streamDemo } from "../src/demo.js";
 
 const ledger = new MemoryLedger();
 const server = createGatewayServer(undefined, undefined, ledger);
@@ -73,4 +74,64 @@ test("feedback updates leaderboard without accepting correction text", async () 
   assert.doesNotMatch(receipts, /Private note|SECRET_CORRECTION/);
   const leaderboard = await fetch(`${baseUrl}/api/leaderboard`).then((item) => item.json()) as { models: { ratings: number }[] };
   assert.ok(leaderboard.models.some((model) => model.ratings > 0));
+});
+
+test("opt-in comparison returns two gated answers and a shared identity", async () => {
+  const response = await fetch(`${baseUrl}/api/compare`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "Compare this", privacy: "local_only", policy: "quality" }) });
+  assert.equal(response.status, 200);
+  const result = await response.json() as { comparisonId: string; primary: { answer: string; receipt: { modelId: string; comparisonId: string } }; alternative: { answer: string; receipt: { modelId: string; comparisonId: string } }; disagreement: string };
+  assert.notEqual(result.primary.receipt.modelId, result.alternative.receipt.modelId);
+  assert.equal(result.primary.receipt.comparisonId, result.comparisonId);
+  assert.equal(result.alternative.receipt.comparisonId, result.comparisonId);
+  assert.equal(result.disagreement, "different");
+  assert.match(result.primary.answer, /^\[Synthetic/);
+});
+
+test("comparison rejects a ceiling that cannot cover both planned models", async () => {
+  const response = await fetch(`${baseUrl}/api/compare`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "hello", privacy: "local_only", policy: "cost", maxCostUsd: 0.0003 }) });
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), { error: "comparison_budget_too_low" });
+});
+
+test("comparison refuses a remote second model under local-only privacy", async () => {
+  const remote = { ...demoCatalog[0]!, id: "remote", locality: "remote" as const };
+  let remoteCalls = 0;
+  const comparisonServer = createGatewayServer([demoCatalog[0]!, remote], (model, input, signal) => {
+    if (model.id === "remote") remoteCalls += 1;
+    return streamDemo(model, input, signal);
+  }, new MemoryLedger());
+  await new Promise<void>((resolve) => comparisonServer.listen(0, "127.0.0.1", resolve));
+  try {
+    const url = `http://127.0.0.1:${(comparisonServer.address() as AddressInfo).port}/api/compare`;
+    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "private", privacy: "local_only" }) });
+    assert.equal(response.status, 422);
+    assert.equal(remoteCalls, 0);
+  } finally { await new Promise<void>((resolve) => comparisonServer.close(() => resolve())); }
+});
+
+test("comparison does not launch a second call after the client disconnects", async () => {
+  const calls: string[] = [];
+  let startedFirst!: () => void;
+  const started = new Promise<void>((resolve) => { startedFirst = resolve; });
+  const comparisonServer = createGatewayServer([demoCatalog[2]!, demoCatalog[0]!], async function* (model) {
+    calls.push(model.id);
+    startedFirst();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    yield "late answer";
+  }, new MemoryLedger());
+  await new Promise<void>((resolve) => comparisonServer.listen(0, "127.0.0.1", resolve));
+  try {
+    const controller = new AbortController();
+    const url = `http://127.0.0.1:${(comparisonServer.address() as AddressInfo).port}/api/compare`;
+    const pending = fetch(url, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "hello", policy: "cost" }), signal: controller.signal });
+    await started;
+    controller.abort();
+    await assert.rejects(pending);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.deepEqual(calls, ["local-flaky"]);
+  } finally { await new Promise<void>((resolve) => comparisonServer.close(() => resolve())); }
 });

@@ -30,3 +30,5 @@ npm run dev
 The request's `privacy` defaults to `local_only`. Set `remote_allowed` only when sending content to an explicitly configured hosted provider is acceptable. A remote provider can apply its own retention and training policies; this gateway cannot override them. Credentials and prompts never enter local receipts. Receipts contain only request metadata, are retained for 30 days, and can be deleted through the dashboard. Provider usage is recorded when the streaming response reports it; otherwise token counts and costs are estimates.
 
 Adapter shapes follow the [Ollama chat API](https://docs.ollama.com/api/chat) and [OpenAI chat completion API](https://platform.openai.com/docs/api-reference/chat/create). Other OpenAI-compatible services may vary, so use the mocked contract tests or a live smoke check before relying on an endpoint.
+
+See [the usage guide](docs/USAGE.md) for the dashboard, streaming and comparison APIs, verification commands, privacy limits, and extension ideas.

@@ -42,12 +42,18 @@ export async function executeRoute(
   const attempts: AttemptReceipt[] = [];
   let answer = "";
   let chosen: ModelEndpoint | undefined;
-  let reportedUsage: { inputTokens: number; outputTokens: number } | undefined;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCostUsd = 0;
+  let allDemo = true;
+  let allReported = true;
   let outcome: RouteReceipt["outcome"] = "failed";
   const overall = AbortSignal.timeout(limits.overallMs);
   for (const model of plan.candidates.slice(0, limits.maxAttempts)) {
     if (overall.aborted || disconnectSignal?.aborted) break;
-    reportedUsage = undefined;
+    if (request.maxCostUsd !== undefined && totalCostUsd + estimatedCostUsd(model, request.prompt) > request.maxCostUsd) break;
+    let reportedUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let attemptOutput = "";
     const attemptStart = performance.now();
     const attempt = AbortSignal.timeout(limits.attemptMs);
     const signal = AbortSignal.any(disconnectSignal ? [overall, attempt, disconnectSignal] : [overall, attempt]);
@@ -60,14 +66,18 @@ export async function executeRoute(
         if (signal.aborted) throw signal.reason;
         if (typeof item.value !== "string") {
           reportedUsage = item.value.usage;
+          if (request.maxCostUsd !== undefined && totalCostUsd + costFromUsage(model, reportedUsage.inputTokens, reportedUsage.outputTokens) > request.maxCostUsd) {
+            throw new Error("budget_exceeded");
+          }
           continue;
         }
-        if (request.maxCostUsd !== undefined && estimatedCostUsd(model, request.prompt, Math.ceil((answer.length + item.value.length) / 4)) > request.maxCostUsd) {
+        if (request.maxCostUsd !== undefined && totalCostUsd + estimatedCostUsd(model, request.prompt, Math.ceil((attemptOutput.length + item.value.length) / 4)) > request.maxCostUsd) {
           throw new Error("budget_exceeded");
         }
         emitted = true;
         chosen = model;
         answer += item.value;
+        attemptOutput += item.value;
         onChunk(item.value);
       }
       chosen = model;
@@ -81,15 +91,20 @@ export async function executeRoute(
       if (emitted) { outcome = "interrupted"; break; }
     } finally {
       if (iterator.return) void iterator.return().catch(() => undefined);
+      const inputTokens = reportedUsage?.inputTokens ?? Math.max(1, Math.ceil(request.prompt.length / 4));
+      const outputTokens = reportedUsage?.outputTokens ?? Math.ceil(attemptOutput.length / 4);
+      totalInputTokens += inputTokens;
+      totalOutputTokens += outputTokens;
+      totalCostUsd += costFromUsage(model, inputTokens, outputTokens);
+      allDemo &&= model.provider === "demo";
+      allReported &&= model.provider !== "demo" && reportedUsage !== undefined;
     }
   }
-  const inputTokens = reportedUsage?.inputTokens ?? Math.max(1, Math.ceil(request.prompt.length / 4));
-  const outputTokens = reportedUsage?.outputTokens ?? Math.ceil(answer.length / 4);
   const receipt: RouteReceipt = {
     id: randomUUID(), createdAt: new Date().toISOString(), policy: request.policy, privacy: request.privacy,
-    modelId: chosen?.id, attempts, inputTokens, outputTokens,
-    costUsd: chosen ? costFromUsage(chosen, inputTokens, outputTokens) : 0,
-    costKind: chosen?.provider === "demo" ? "synthetic" : reportedUsage ? "reported" : "estimated",
+    modelId: chosen?.id, attempts, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
+    costUsd: totalCostUsd,
+    costKind: attempts.length > 0 && allDemo ? "synthetic" : allReported && attempts.length > 0 ? "reported" : "estimated",
     elapsedMs: performance.now() - started, decisionMs: plan.decisionMs, outcome,
   };
   return { answer, receipt };

@@ -17,6 +17,62 @@
 [hidden] {
   display: none !important;
 }
+.mode-selector {
+  display: flex;
+  gap: 0;
+  border: 0;
+  padding: 0;
+  margin: 15px 0 0;
+}
+.mode-selector legend {
+  font-size: 12px;
+  font-weight: 650;
+  padding: 0 0 8px;
+}
+.mode-selector label {
+  margin: 0;
+  cursor: pointer;
+}
+.mode-selector input {
+  position: absolute;
+  opacity: 0;
+}
+.mode-selector span {
+  display: block;
+  min-width: 112px;
+  text-align: center;
+  border: 1px solid #bdcbc5;
+  padding: 8px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #52665c;
+  background: #fff;
+}
+.mode-selector label:first-of-type span {
+  border-radius: 4px 0 0 4px;
+}
+.mode-selector label:last-of-type span {
+  border-radius: 0 4px 4px 0;
+  border-left: 0;
+}
+.mode-selector input:checked + span {
+  color: #fff;
+  background: #197054;
+  border-color: #197054;
+}
+.mode-selector input:focus-visible + span {
+  outline: 2px solid #114e39;
+  outline-offset: 2px;
+}
+.mode-selector input:disabled + span {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.compare-details {
+  border-top: 2px solid #d9e0dd;
+  margin-top: 20px;
+  padding-top: 18px;
+}
 body {
   margin: 0;
 }
