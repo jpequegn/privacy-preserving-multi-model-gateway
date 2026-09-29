@@ -38,6 +38,22 @@
               placeholder="Ask a question or paste a short passage"
               required
             ></textarea>
+            <fieldset class="mode-selector">
+              <legend>Mode</legend>
+              <label
+                ><input type="radio" name="mode" value="single" checked /><span
+                  >Single route</span
+                ></label
+              >
+              <label
+                ><input
+                  id="compare-mode"
+                  type="radio"
+                  name="mode"
+                  value="compare"
+                /><span>Compare two</span></label
+              >
+            </fieldset>
             <div class="form-grid">
               <div>
                 <label for="policy">Routing policy</label
@@ -100,6 +116,23 @@
               ><button id="rate-up" type="button">Useful</button
               ><button id="rate-down" type="button">Not useful</button
               ><span id="feedback-state" role="status"></span>
+            </div>
+            <div id="compare-details" class="compare-details" hidden>
+              <div class="result-meta">
+                <strong id="alternative-name"></strong
+                ><span id="disagreement"></span>
+              </div>
+              <div id="alternative-answer" class="answer"></div>
+              <div class="receipt-line">
+                <span id="alternative-cost"></span
+                ><span id="alternative-latency"></span>
+              </div>
+              <div class="feedback">
+                <span>Alternative useful?</span
+                ><button id="rate-alt-up" type="button">Useful</button
+                ><button id="rate-alt-down" type="button">Not useful</button
+                ><span id="alternative-feedback-state" role="status"></span>
+              </div>
             </div>
           </div>
         </div>

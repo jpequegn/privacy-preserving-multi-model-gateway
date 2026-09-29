@@ -7,7 +7,7 @@ import type { ModelEndpoint } from "./domain.js";
 import { executeRoute, type ModelStream } from "./execution.js";
 import { catalogWithFeedback, leaderboard } from "./feedback.js";
 import { FileLedger, summarize, type Ledger } from "./ledger.js";
-import { planRoute } from "./routing.js";
+import { estimatedCostUsd, planRoute } from "./routing.js";
 import { parseGatewayRequest } from "./validation.js";
 
 function json(response: ServerResponse, status: number, body: unknown): void {
@@ -56,6 +56,46 @@ async function handleGenerate(request: IncomingMessage, response: ServerResponse
   }
 }
 
+async function handleCompare(request: IncomingMessage, response: ServerResponse, catalog: readonly ModelEndpoint[], stream: ModelStream, ledger: Ledger): Promise<void> {
+  let input;
+  try { input = parseGatewayRequest(await readJson(request)); }
+  catch (error) { json(response, 400, { error: error instanceof Error ? error.message : "invalid_request" }); return; }
+  const plan = planRoute(input, catalogWithFeedback(catalog, ledger.list()));
+  if (plan.kind !== "ready" || plan.candidates.length < 2) { json(response, 422, { error: "two_eligible_models_required" }); return; }
+  const [first, second] = plan.candidates;
+  if (!first || !second) { json(response, 422, { error: "two_eligible_models_required" }); return; }
+  if (input.maxCostUsd !== undefined && estimatedCostUsd(first, input.prompt) + estimatedCostUsd(second, input.prompt) > input.maxCostUsd) {
+    json(response, 422, { error: "comparison_budget_too_low" }); return;
+  }
+  const disconnected = new AbortController();
+  response.on("close", () => disconnected.abort(new Error("client_disconnected")));
+  const sharedSignal = AbortSignal.any([disconnected.signal, AbortSignal.timeout(60_000)]);
+  const comparisonId = randomUUID();
+  const firstResult = await executeRoute(input, { ...plan, candidates: [first] }, stream, () => undefined, sharedSignal);
+  firstResult.receipt.comparisonId = comparisonId;
+  ledger.record(firstResult.receipt);
+  if (sharedSignal.aborted) {
+    if (!disconnected.signal.aborted) json(response, 504, { error: "comparison_timeout", comparisonId });
+    return;
+  }
+  const remaining = input.maxCostUsd === undefined ? undefined : input.maxCostUsd - firstResult.receipt.costUsd;
+  if (remaining !== undefined && remaining < estimatedCostUsd(second, input.prompt)) {
+    json(response, 200, { comparisonId, primary: firstResult, alternative: null, disagreement: "incomplete", reason: "budget_exhausted" });
+    return;
+  }
+  const secondResult = await executeRoute({ ...input, ...(remaining === undefined ? {} : { maxCostUsd: remaining }) }, { ...plan, candidates: [second] }, stream, () => undefined, sharedSignal);
+  secondResult.receipt.comparisonId = comparisonId;
+  ledger.record(secondResult.receipt);
+  if (sharedSignal.aborted) {
+    if (!disconnected.signal.aborted) json(response, 504, { error: "comparison_timeout", comparisonId });
+    return;
+  }
+  const complete = firstResult.receipt.outcome === "completed" && secondResult.receipt.outcome === "completed";
+  const normalize = (answer: string) => answer.trim().replace(/\s+/g, " ").toLowerCase();
+  const disagreement = !complete ? "incomplete" : normalize(firstResult.answer) === normalize(secondResult.answer) ? "identical" : "different";
+  json(response, 200, { comparisonId, primary: firstResult, alternative: secondResult, disagreement });
+}
+
 export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCatalog, stream: ModelStream = streamDemo, ledger: Ledger = new FileLedger(process.env.GATEWAY_DATA_FILE ?? "data/receipts.jsonl")): Server {
   return createServer((request, response) => {
     const host = request.headers.host?.split(":")[0];
@@ -96,6 +136,10 @@ export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCata
         if (!ledger.setFeedback(input.requestId, input.rating, input.corrected === true)) { json(response, 404, { error: "request_not_found" }); return; }
         json(response, 200, { saved: true });
       }).catch(() => json(response, 400, { error: "invalid_feedback" }));
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/compare") {
+      void handleCompare(request, response, catalog, stream, ledger).catch(() => json(response, 502, { error: "comparison_failed" }));
       return;
     }
     if (request.method === "POST" && (request.url === "/api/generate" || request.url === "/api/generate/stream")) {

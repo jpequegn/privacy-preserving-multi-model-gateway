@@ -26,6 +26,7 @@ export class MemoryLedger implements Ledger {
 function metadataOnly(receipt: RouteReceipt): RouteReceipt {
   return {
     id: receipt.id,
+    ...(receipt.comparisonId === undefined ? {} : { comparisonId: receipt.comparisonId }),
     createdAt: receipt.createdAt,
     policy: receipt.policy,
     privacy: receipt.privacy,
@@ -63,7 +64,7 @@ export class FileLedger implements Ledger {
     this.purgeExpired();
   }
 
-  list(): readonly RouteReceipt[] { return [...this.receipts]; }
+  list(): readonly RouteReceipt[] { this.purgeExpired(); return [...this.receipts]; }
 
   setFeedback(id: string, rating: "up" | "down", corrected: boolean): boolean {
     const receipt = this.receipts.find((item) => item.id === id && item.outcome === "completed");
