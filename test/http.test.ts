@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { AddressInfo } from "node:net";
 import { createGatewayServer } from "../src/http.js";
+import { MemoryLedger } from "../src/ledger.js";
 
-const server = createGatewayServer();
+const server = createGatewayServer(undefined, undefined, new MemoryLedger());
 let baseUrl: string;
 
 before(async () => {
