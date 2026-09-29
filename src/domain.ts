@@ -7,12 +7,13 @@ export interface GatewayRequest {
   privacy: Privacy;
   policy: Policy;
   maxCostUsd?: number;
+  requiredCapabilities?: readonly string[];
 }
 
 export interface ModelEndpoint {
   id: string;
   provider: string;
-  locality: Locality;
+  locality: Locality | "unknown";
   capabilities: readonly string[];
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
