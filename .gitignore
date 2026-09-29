@@ -4,3 +4,4 @@ dist/
 .env
 .DS_Store
 .playwright-cli/
+config/models.local.json

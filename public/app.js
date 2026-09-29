@@ -183,8 +183,12 @@ $("clear-history").addEventListener("click", async () => {
 });
 
 api("/api/health")
-  .then(() => {
+  .then(async () => {
     $("connection").textContent = "Local gateway online";
+    const models = await api("/api/models");
+    $("remote").disabled = !models.models.some((model) => model.locality === "remote");
+    if (!models.synthetic)
+      $("data-note").textContent = "Costs use provider token counts when reported, otherwise estimates. User ratings are not verified model quality.";
     return refresh();
   })
   .catch(() => {

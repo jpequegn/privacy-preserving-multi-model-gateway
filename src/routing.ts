@@ -8,6 +8,10 @@ export type RoutePlan =
 
 export function estimatedCostUsd(model: ModelEndpoint, prompt: string, outputTokens = 512): number {
   const inputTokens = Math.max(1, Math.ceil(prompt.length / 4));
+  return costFromUsage(model, inputTokens, outputTokens);
+}
+
+export function costFromUsage(model: ModelEndpoint, inputTokens: number, outputTokens: number): number {
   return (inputTokens * model.inputUsdPerMillion + outputTokens * model.outputUsdPerMillion) / 1_000_000;
 }
 
