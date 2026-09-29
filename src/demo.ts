@@ -25,3 +25,11 @@ export async function generateDemo(model: ModelEndpoint, request: GatewayRequest
     costKind: "synthetic",
   };
 }
+
+export async function* streamDemo(model: ModelEndpoint, request: GatewayRequest, signal: AbortSignal): AsyncIterable<string> {
+  const result = await generateDemo(model, request, signal);
+  for (const part of result.text.match(/\S+\s*/g) ?? []) {
+    if (signal.aborted) throw signal.reason;
+    yield part;
+  }
+}
