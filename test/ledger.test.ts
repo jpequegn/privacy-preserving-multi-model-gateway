@@ -21,6 +21,8 @@ test("file ledger persists only metadata across restart", () => {
     assert.doesNotMatch(readFileSync(path, "utf8"), /CANARY_PROMPT|CANARY_ANSWER/);
     assert.deepEqual(new FileLedger(path).list(), [receipt]);
     assert.equal(summarize(ledger.list()).totalCostUsd, 0.1);
+    assert.equal(ledger.setFeedback("test", "up", true), true);
+    assert.deepEqual(new FileLedger(path).list()[0]?.feedback?.rating, "up");
     ledger.clear();
     assert.deepEqual(new FileLedger(path).list(), []);
   } finally { rmSync(directory, { recursive: true, force: true }); }
