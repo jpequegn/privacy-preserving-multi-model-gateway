@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { fileURLToPath } from "node:url";
 import { demoCatalog, streamDemo } from "./demo.js";
 import type { ModelEndpoint } from "./domain.js";
 import { executeRoute, type ModelStream } from "./execution.js";
@@ -63,6 +65,17 @@ export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCata
       let permitted = false;
       try { const parsed = new URL(origin); permitted = parsed.protocol === "http:" && parsed.host === request.headers.host; } catch {}
       if (!permitted) { json(response, 403, { error: "cross_origin_denied" }); return; }
+    }
+    const assets: Record<string, { file: string; type: string }> = {
+      "/": { file: "index.html", type: "text/html; charset=utf-8" },
+      "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
+      "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
+    };
+    const asset = request.method === "GET" ? assets[request.url ?? ""] : undefined;
+    if (asset) {
+      response.writeHead(200, { "content-type": asset.type, "cache-control": "no-store", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'" });
+      response.end(readFileSync(fileURLToPath(new URL(`../public/${asset.file}`, import.meta.url))));
+      return;
     }
     if (request.method === "GET" && request.url === "/api/health") {
       json(response, 200, { status: "ok", version: 1 });

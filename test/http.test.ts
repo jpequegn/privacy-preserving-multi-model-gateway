@@ -27,3 +27,14 @@ test("unknown routes return JSON 404", async () => {
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { error: "not_found" });
 });
+
+test("dashboard and its assets are served without a remote dependency", async () => {
+  const page = await fetch(baseUrl);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Model Gateway/);
+  for (const path of ["/styles.css", "/app.js"]) {
+    const asset = await fetch(`${baseUrl}${path}`);
+    assert.equal(asset.status, 200);
+    assert.ok((await asset.text()).length > 100);
+  }
+});
