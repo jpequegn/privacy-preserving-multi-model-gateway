@@ -61,3 +61,16 @@ test("metrics reconcile with metadata receipts and can be cleared", async () => 
   assert.equal(cleared.status, 200);
   assert.equal(ledger.list().length, 0);
 });
+
+test("feedback updates leaderboard without accepting correction text", async () => {
+  const generated = await generate({ prompt: "Private note" }).then((response) => response.json()) as { receipt: { id: string } };
+  const response = await fetch(`${baseUrl}/api/feedback`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ requestId: generated.receipt.id, rating: "up", corrected: true, correctionText: "SECRET_CORRECTION" }),
+  });
+  assert.equal(response.status, 200);
+  const receipts = await fetch(`${baseUrl}/api/receipts`).then((item) => item.text());
+  assert.doesNotMatch(receipts, /Private note|SECRET_CORRECTION/);
+  const leaderboard = await fetch(`${baseUrl}/api/leaderboard`).then((item) => item.json()) as { models: { ratings: number }[] };
+  assert.ok(leaderboard.models.some((model) => model.ratings > 0));
+});

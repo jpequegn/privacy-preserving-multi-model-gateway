@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { demoCatalog, streamDemo } from "./demo.js";
 import type { ModelEndpoint } from "./domain.js";
 import { executeRoute, type ModelStream } from "./execution.js";
+import { catalogWithFeedback, leaderboard } from "./feedback.js";
 import { FileLedger, summarize, type Ledger } from "./ledger.js";
 import { planRoute } from "./routing.js";
 import { parseGatewayRequest } from "./validation.js";
@@ -30,7 +31,7 @@ async function handleGenerate(request: IncomingMessage, response: ServerResponse
   let input;
   try { input = parseGatewayRequest(await readJson(request)); }
   catch (error) { json(response, 400, { error: error instanceof Error ? error.message : "invalid_request" }); return; }
-  const plan = planRoute(input, catalog);
+  const plan = planRoute(input, catalogWithFeedback(catalog, ledger.list()));
   if (plan.kind === "refused") {
     ledger.record({ id: randomUUID(), createdAt: new Date().toISOString(), policy: input.policy, privacy: input.privacy,
       attempts: [], inputTokens: 0, outputTokens: 0, costUsd: 0, costKind: "estimated", elapsedMs: plan.decisionMs,
@@ -69,8 +70,21 @@ export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCata
     }
     if (request.method === "GET" && request.url === "/api/models") { json(response, 200, { models: catalog, synthetic: true }); return; }
     if (request.method === "GET" && request.url === "/api/metrics") { json(response, 200, summarize(ledger.list())); return; }
+    if (request.method === "GET" && request.url === "/api/leaderboard") { json(response, 200, { models: leaderboard(catalog, ledger.list()) }); return; }
     if (request.method === "GET" && request.url === "/api/receipts") { json(response, 200, { receipts: ledger.list().slice(-100).reverse() }); return; }
     if (request.method === "DELETE" && request.url === "/api/receipts") { ledger.clear(); json(response, 200, { deleted: true }); return; }
+    if (request.method === "POST" && request.url === "/api/feedback") {
+      void readJson(request).then((value) => {
+        if (typeof value !== "object" || value === null || Array.isArray(value)) { json(response, 400, { error: "invalid_feedback" }); return; }
+        const input = value as Record<string, unknown>;
+        if (typeof input.requestId !== "string" || (input.rating !== "up" && input.rating !== "down") || (input.corrected !== undefined && typeof input.corrected !== "boolean")) {
+          json(response, 400, { error: "invalid_feedback" }); return;
+        }
+        if (!ledger.setFeedback(input.requestId, input.rating, input.corrected === true)) { json(response, 404, { error: "request_not_found" }); return; }
+        json(response, 200, { saved: true });
+      }).catch(() => json(response, 400, { error: "invalid_feedback" }));
+      return;
+    }
     if (request.method === "POST" && (request.url === "/api/generate" || request.url === "/api/generate/stream")) {
       const sse = request.url.endsWith("/stream");
       void handleGenerate(request, response, catalog, stream, ledger, sse).catch(() => {

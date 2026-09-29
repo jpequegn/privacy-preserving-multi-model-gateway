@@ -5,6 +5,7 @@ import type { RouteReceipt } from "./domain.js";
 export interface Ledger {
   record(receipt: RouteReceipt): void;
   list(): readonly RouteReceipt[];
+  setFeedback(id: string, rating: "up" | "down", corrected: boolean): boolean;
   clear(): void;
 }
 
@@ -12,6 +13,13 @@ export class MemoryLedger implements Ledger {
   private receipts: RouteReceipt[] = [];
   record(receipt: RouteReceipt): void { this.receipts.push(metadataOnly(receipt)); }
   list(): readonly RouteReceipt[] { return [...this.receipts]; }
+  setFeedback(id: string, rating: "up" | "down", corrected: boolean): boolean {
+    const receipt = this.receipts.find((item) => item.id === id && item.outcome === "completed");
+    if (!receipt) return false;
+    if (receipt.feedback?.rating === rating && receipt.feedback.corrected === corrected) return true;
+    receipt.feedback = { rating, corrected, at: new Date().toISOString() };
+    return true;
+  }
   clear(): void { this.receipts = []; }
 }
 
@@ -30,6 +38,7 @@ function metadataOnly(receipt: RouteReceipt): RouteReceipt {
     elapsedMs: receipt.elapsedMs,
     decisionMs: receipt.decisionMs,
     outcome: receipt.outcome,
+    ...(receipt.feedback === undefined ? {} : { feedback: { rating: receipt.feedback.rating, corrected: receipt.feedback.corrected, at: receipt.feedback.at } }),
   };
 }
 
@@ -55,6 +64,15 @@ export class FileLedger implements Ledger {
   }
 
   list(): readonly RouteReceipt[] { return [...this.receipts]; }
+
+  setFeedback(id: string, rating: "up" | "down", corrected: boolean): boolean {
+    const receipt = this.receipts.find((item) => item.id === id && item.outcome === "completed");
+    if (!receipt) return false;
+    if (receipt.feedback?.rating === rating && receipt.feedback.corrected === corrected) return true;
+    receipt.feedback = { rating, corrected, at: new Date().toISOString() };
+    this.rewrite();
+    return true;
+  }
 
   clear(): void {
     this.receipts = [];

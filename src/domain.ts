@@ -42,4 +42,5 @@ export interface RouteReceipt {
   elapsedMs: number;
   decisionMs: number;
   outcome: "completed" | "refused" | "failed" | "interrupted";
+  feedback?: { rating: "up" | "down"; corrected: boolean; at: string };
 }
