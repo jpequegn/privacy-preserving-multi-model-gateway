@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { demoCatalog, streamDemo } from "./demo.js";
 import type { ModelEndpoint } from "./domain.js";
 import { executeRoute, type ModelStream } from "./execution.js";
+import { FileLedger, summarize, type Ledger } from "./ledger.js";
 import { planRoute } from "./routing.js";
 import { parseGatewayRequest } from "./validation.js";
 
@@ -24,12 +26,15 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   catch { throw new Error("invalid_json"); }
 }
 
-async function handleGenerate(request: IncomingMessage, response: ServerResponse, catalog: readonly ModelEndpoint[], stream: ModelStream, sse: boolean): Promise<void> {
+async function handleGenerate(request: IncomingMessage, response: ServerResponse, catalog: readonly ModelEndpoint[], stream: ModelStream, ledger: Ledger, sse: boolean): Promise<void> {
   let input;
   try { input = parseGatewayRequest(await readJson(request)); }
   catch (error) { json(response, 400, { error: error instanceof Error ? error.message : "invalid_request" }); return; }
   const plan = planRoute(input, catalog);
   if (plan.kind === "refused") {
+    ledger.record({ id: randomUUID(), createdAt: new Date().toISOString(), policy: input.policy, privacy: input.privacy,
+      attempts: [], inputTokens: 0, outputTokens: 0, costUsd: 0, costKind: "estimated", elapsedMs: plan.decisionMs,
+      decisionMs: plan.decisionMs, outcome: "refused" });
     json(response, 422, { error: plan.reason, reasons: plan.reasons });
     return;
   }
@@ -39,6 +44,7 @@ async function handleGenerate(request: IncomingMessage, response: ServerResponse
   const result = await executeRoute(input, plan, stream, (chunk) => {
     if (sse) response.write(`event: chunk\ndata: ${JSON.stringify({ text: chunk })}\n\n`);
   }, disconnected.signal);
+  ledger.record(result.receipt);
   if (sse) {
     response.write(`event: done\ndata: ${JSON.stringify({ receipt: result.receipt })}\n\n`);
     response.end();
@@ -47,7 +53,7 @@ async function handleGenerate(request: IncomingMessage, response: ServerResponse
   }
 }
 
-export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCatalog, stream: ModelStream = streamDemo): Server {
+export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCatalog, stream: ModelStream = streamDemo, ledger: Ledger = new FileLedger(process.env.GATEWAY_DATA_FILE ?? "data/receipts.jsonl")): Server {
   return createServer((request, response) => {
     const host = request.headers.host?.split(":")[0];
     if (host !== "127.0.0.1" && host !== "localhost") { json(response, 403, { error: "loopback_only" }); return; }
@@ -62,9 +68,12 @@ export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCata
       return;
     }
     if (request.method === "GET" && request.url === "/api/models") { json(response, 200, { models: catalog, synthetic: true }); return; }
+    if (request.method === "GET" && request.url === "/api/metrics") { json(response, 200, summarize(ledger.list())); return; }
+    if (request.method === "GET" && request.url === "/api/receipts") { json(response, 200, { receipts: ledger.list().slice(-100).reverse() }); return; }
+    if (request.method === "DELETE" && request.url === "/api/receipts") { ledger.clear(); json(response, 200, { deleted: true }); return; }
     if (request.method === "POST" && (request.url === "/api/generate" || request.url === "/api/generate/stream")) {
       const sse = request.url.endsWith("/stream");
-      void handleGenerate(request, response, catalog, stream, sse).catch(() => {
+      void handleGenerate(request, response, catalog, stream, ledger, sse).catch(() => {
         if (!response.headersSent) json(response, 502, { error: "provider_failed" });
         else response.end();
       });
