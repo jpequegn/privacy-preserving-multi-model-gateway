@@ -1,0 +1,36 @@
+{
+  "models": [
+    {
+      "id": "local-demo",
+      "adapter": "demo",
+      "capabilities": ["text"],
+      "inputUsdPerMillion": 0.2,
+      "outputUsdPerMillion": 0.5,
+      "qualityScore": 0.5,
+      "latencyMs": 10
+    },
+    {
+      "id": "local-ollama",
+      "adapter": "ollama",
+      "baseUrl": "http://127.0.0.1:11434",
+      "modelName": "REPLACE_WITH_INSTALLED_MODEL",
+      "capabilities": ["text"],
+      "inputUsdPerMillion": 0,
+      "outputUsdPerMillion": 0,
+      "qualityScore": 0.6,
+      "latencyMs": 1000
+    },
+    {
+      "id": "hosted-example",
+      "adapter": "openai_compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "modelName": "REPLACE_WITH_HOSTED_MODEL",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "capabilities": ["text"],
+      "inputUsdPerMillion": 1,
+      "outputUsdPerMillion": 2,
+      "qualityScore": 0.8,
+      "latencyMs": 700
+    }
+  ]
+}

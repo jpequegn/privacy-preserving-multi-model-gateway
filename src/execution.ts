@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AttemptReceipt, GatewayRequest, ModelEndpoint, RouteReceipt } from "./domain.js";
-import { estimatedCostUsd, type RoutePlan } from "./routing.js";
+import { costFromUsage, estimatedCostUsd, type RoutePlan } from "./routing.js";
 
-export type ModelStream = (model: ModelEndpoint, request: GatewayRequest, signal: AbortSignal) => AsyncIterable<string>;
+export type StreamItem = string | { usage: { inputTokens: number; outputTokens: number } };
+export type ModelStream = (model: ModelEndpoint, request: GatewayRequest, signal: AbortSignal) => AsyncIterable<StreamItem>;
 export type ChunkSink = (chunk: string) => void;
 
 export interface ExecutionResult {
@@ -16,7 +17,7 @@ export interface ExecutionLimits {
   maxAttempts: number;
 }
 
-const defaultLimits: ExecutionLimits = { attemptMs: 3000, overallMs: 10_000, maxAttempts: 3 };
+const defaultLimits: ExecutionLimits = { attemptMs: 20_000, overallMs: 60_000, maxAttempts: 3 };
 
 async function nextWithAbort<T>(iterator: AsyncIterator<T>, signal: AbortSignal): Promise<IteratorResult<T>> {
   if (signal.aborted) throw signal.reason;
@@ -41,10 +42,12 @@ export async function executeRoute(
   const attempts: AttemptReceipt[] = [];
   let answer = "";
   let chosen: ModelEndpoint | undefined;
+  let reportedUsage: { inputTokens: number; outputTokens: number } | undefined;
   let outcome: RouteReceipt["outcome"] = "failed";
   const overall = AbortSignal.timeout(limits.overallMs);
   for (const model of plan.candidates.slice(0, limits.maxAttempts)) {
     if (overall.aborted || disconnectSignal?.aborted) break;
+    reportedUsage = undefined;
     const attemptStart = performance.now();
     const attempt = AbortSignal.timeout(limits.attemptMs);
     const signal = AbortSignal.any(disconnectSignal ? [overall, attempt, disconnectSignal] : [overall, attempt]);
@@ -55,6 +58,10 @@ export async function executeRoute(
         const item = await nextWithAbort(iterator, signal);
         if (item.done) break;
         if (signal.aborted) throw signal.reason;
+        if (typeof item.value !== "string") {
+          reportedUsage = item.value.usage;
+          continue;
+        }
         if (request.maxCostUsd !== undefined && estimatedCostUsd(model, request.prompt, Math.ceil((answer.length + item.value.length) / 4)) > request.maxCostUsd) {
           throw new Error("budget_exceeded");
         }
@@ -76,13 +83,13 @@ export async function executeRoute(
       if (iterator.return) void iterator.return().catch(() => undefined);
     }
   }
-  const inputTokens = Math.max(1, Math.ceil(request.prompt.length / 4));
-  const outputTokens = Math.ceil(answer.length / 4);
+  const inputTokens = reportedUsage?.inputTokens ?? Math.max(1, Math.ceil(request.prompt.length / 4));
+  const outputTokens = reportedUsage?.outputTokens ?? Math.ceil(answer.length / 4);
   const receipt: RouteReceipt = {
     id: randomUUID(), createdAt: new Date().toISOString(), policy: request.policy, privacy: request.privacy,
     modelId: chosen?.id, attempts, inputTokens, outputTokens,
-    costUsd: chosen ? estimatedCostUsd(chosen, request.prompt, outputTokens) : 0,
-    costKind: chosen?.provider === "demo" ? "synthetic" : "estimated",
+    costUsd: chosen ? costFromUsage(chosen, inputTokens, outputTokens) : 0,
+    costKind: chosen?.provider === "demo" ? "synthetic" : reportedUsage ? "reported" : "estimated",
     elapsedMs: performance.now() - started, decisionMs: plan.decisionMs, outcome,
   };
   return { answer, receipt };

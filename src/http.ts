@@ -81,7 +81,7 @@ export function createGatewayServer(catalog: readonly ModelEndpoint[] = demoCata
       json(response, 200, { status: "ok", version: 1 });
       return;
     }
-    if (request.method === "GET" && request.url === "/api/models") { json(response, 200, { models: catalog, synthetic: true }); return; }
+    if (request.method === "GET" && request.url === "/api/models") { json(response, 200, { models: catalog, synthetic: catalog.every((model) => model.provider === "demo") }); return; }
     if (request.method === "GET" && request.url === "/api/metrics") { json(response, 200, summarize(ledger.list())); return; }
     if (request.method === "GET" && request.url === "/api/leaderboard") { json(response, 200, { models: leaderboard(catalog, ledger.list()) }); return; }
     if (request.method === "GET" && request.url === "/api/receipts") { json(response, 200, { receipts: ledger.list().slice(-100).reverse() }); return; }
