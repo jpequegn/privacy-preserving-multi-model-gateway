@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Model Gateway</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <div>
+          <strong>Model Gateway</strong><small>Local control plane</small>
+        </div>
+      </div>
+      <div class="top-status">
+        <span class="status-dot" aria-hidden="true"></span
+        ><span id="connection">Connecting</span>
+      </div>
+    </header>
+    <main>
+      <section class="workspace" aria-label="Request workspace">
+        <div class="composer">
+          <div class="section-heading">
+            <h1>New request</h1>
+            <span class="eyebrow">01 / Route</span>
+          </div>
+          <form id="prompt-form">
+            <label for="prompt">Prompt</label>
+            <textarea
+              id="prompt"
+              name="prompt"
+              maxlength="8000"
+              rows="9"
+              placeholder="Ask a question or paste a short passage"
+              required
+            ></textarea>
+            <div class="form-grid">
+              <div>
+                <label for="policy">Routing policy</label
+                ><select id="policy" name="policy">
+                  <option value="balanced">Balanced</option>
+                  <option value="cost">Lowest cost</option>
+                  <option value="quality">Highest quality</option>
+                  <option value="latency">Lowest latency</option>
+                </select>
+              </div>
+              <div>
+                <label for="budget">Cost ceiling (USD)</label
+                ><input
+                  id="budget"
+                  name="budget"
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  placeholder="No ceiling"
+                />
+              </div>
+            </div>
+            <label class="check-row"
+              ><input id="remote" type="checkbox" /><span
+                >Allow configured remote providers</span
+              ></label
+            >
+            <p class="disclosure">
+              Remote providers receive your prompt and may retain it under their
+              own policies. Local-only is the default.
+            </p>
+            <div class="form-actions">
+              <span id="request-state" role="status">Ready</span
+              ><button id="send" type="submit">Send request</button>
+            </div>
+          </form>
+        </div>
+        <div class="result-pane">
+          <div class="section-heading">
+            <h2>Response</h2>
+            <span class="eyebrow">02 / Inspect</span>
+          </div>
+          <div id="empty-result" class="empty-result">
+            No response yet. Submit a prompt to inspect the selected route.
+          </div>
+          <div id="result" hidden>
+            <div class="result-meta">
+              <span id="model-name"></span><span id="outcome"></span>
+            </div>
+            <div id="answer" class="answer"></div>
+            <div class="receipt-line">
+              <span id="cost"></span><span id="latency"></span>
+            </div>
+            <div class="trace">
+              <h3>Route attempts</h3>
+              <ol id="attempts"></ol>
+            </div>
+            <div class="feedback">
+              <span>Was this useful?</span
+              ><button id="rate-up" type="button">Useful</button
+              ><button id="rate-down" type="button">Not useful</button
+              ><span id="feedback-state" role="status"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="analytics" aria-label="Usage analytics">
+        <div class="section-heading">
+          <h2>Usage</h2>
+          <span class="eyebrow">03 / Observe</span>
+        </div>
+        <div class="metric-row">
+          <div>
+            <span>Requests</span><strong id="metric-requests">0</strong>
+          </div>
+          <div>
+            <span>Estimated spend</span
+            ><strong id="metric-cost">$0.000000</strong>
+          </div>
+          <div>
+            <span>Median latency</span><strong id="metric-latency">0 ms</strong>
+          </div>
+          <div>
+            <span>Median decision</span
+            ><strong id="metric-decision">0 ms</strong>
+          </div>
+        </div>
+        <div class="analytics-grid">
+          <div>
+            <h3>Cost by model</h3>
+            <div id="cost-chart" class="bar-chart"></div>
+          </div>
+          <div>
+            <h3>Requests over time</h3>
+            <div id="frequency-chart" class="bar-chart"></div>
+          </div>
+        </div>
+      </section>
+      <section class="leaderboard-section" aria-label="Model leaderboard">
+        <div class="section-heading">
+          <h2>Model leaderboard</h2>
+          <span class="eyebrow">04 / Feedback</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Requests</th>
+                <th>Ratings</th>
+                <th>Positive</th>
+                <th>Evidence</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard"></tbody>
+          </table>
+        </div>
+        <p class="data-note">
+          Demo quality and costs are synthetic. User ratings are not verified
+          model quality.
+        </p>
+      </section>
+      <section class="history" aria-label="Recent requests">
+        <div class="section-heading">
+          <h2>Recent receipts</h2>
+          <button id="clear-history" class="text-button" type="button">
+            Clear history
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Model</th>
+                <th>Outcome</th>
+                <th>Cost</th>
+                <th>Latency</th>
+              </tr>
+            </thead>
+            <tbody id="receipts"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
